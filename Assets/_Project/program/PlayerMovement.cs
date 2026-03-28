@@ -8,7 +8,9 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float sprintSpeed = 8f;
     [SerializeField] private float groundDrag = 5f;
     [SerializeField] private float jumpForce = 5f;
+    [SerializeField] private float walkJumpForce = 3f; // walk_jump用のジャンプ力（jumpForceより小さい値を推奨）
     [SerializeField] private float jumpCooldown = 0.25f;
+    [SerializeField] private float jumpDelay = 0f; // ジャンプディレイ秒数
     
     [Header("地面判定")]
     [SerializeField] private float groundDragAmount = 1f;
@@ -31,7 +33,16 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private Transform gunMuzzlePositionObject;
     [SerializeField] private GameObject gunObject;
     
+    [Header("足音設定")]
+    [SerializeField] private AudioClip[] footstepClips = new AudioClip[3]; // 3つの足音
+    [SerializeField] private float footstepVolume = 1f;
+    [SerializeField] private float footstepInterval = 0.2f; // 足音の間隔（runは2歩なので0.4fの半分）
+    
     private Camera mainCamera;
+    private AudioSource audioSource;
+    private float footstepTimer = 0f;
+    private bool wasRunningLastFrame = false;
+    private bool wasGroundedLastFrame = false;
     private Rigidbody rb;
     private CapsuleCollider capsuleCollider;
     private Animator animator;
@@ -41,6 +52,15 @@ public class PlayerMovement : MonoBehaviour
     private float horizontalInput;
     private float verticalInput;
     private bool jumpPressed = false;
+    
+    // walk/idle状態でのジャンプ追跡用
+    private bool wasRunningBeforeJump = false; // ジャンプ前がrun状態だったか
+    private bool wasInWalkBeforeAirbornestate = false; // 空中に落ちる直前がwalk状態だったか
+    
+    // ジャンプディレイ用
+    private float jumpDelayTimer = 0f;
+    private bool jumpDelayActive = false;
+    private float currentJumpForce = 0f; // 現在のジャンプで使用するジャンプ力
 
     private void Start()
     {
@@ -51,6 +71,11 @@ public class PlayerMovement : MonoBehaviour
         capsuleCollider = GetComponent<CapsuleCollider>();
         animator = GetComponent<Animator>();
         cameraController = GetComponent<CameraController>();
+        
+        // AudioSourceを取得
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+            audioSource = gameObject.AddComponent<AudioSource>();
         
         // カメラを取得
         mainCamera = Camera.main;
@@ -88,15 +113,37 @@ public class PlayerMovement : MonoBehaviour
         // スピードリミット
         SpeedControl();
 
+        // ジャンプディレイ更新
+        if (jumpDelayActive)
+        {
+            jumpDelayTimer -= Time.deltaTime;
+            if (jumpDelayTimer <= 0)
+            {
+                ExecuteJump();
+                jumpDelayActive = false;
+            }
+        }
+
         // ジャンプ状態の設定
         if (animator != null)
         {
             AnimatorStateInfo animState = animator.GetCurrentAnimatorStateInfo(0);
             bool isInJumpState = animState.IsName("jump");
+            bool isInWalkJumpState = animState.IsName("walk_jump");
             
-            // パターン1: run → jump（isJump=true）
-            // jump状態中はisJump=trueを保つ、jump状態から出たらisJump=false
-            if (jumpPressed || isInJumpState)
+            // 現在がrun状態か、walk/idle状態かを判定
+            bool isRunningFlag = animator.GetBool("isRunning");
+            bool isWalkingFlag = animator.GetBool("isWalking");
+            bool isIdleFlag = !isRunningFlag && !isWalkingFlag && isGrounded; // その他はidle
+            
+            // run状態でのジャンプ処理（従来と同じ）
+            // run → jump（isJump=true）
+            if (jumpPressed && isRunningFlag)
+            {
+                wasRunningBeforeJump = true;
+                animator.SetBool("isJump", true);
+            }
+            else if (isInJumpState)
             {
                 animator.SetBool("isJump", true);
             }
@@ -105,21 +152,64 @@ public class PlayerMovement : MonoBehaviour
                 animator.SetBool("isJump", false);
             }
             
-            // パターン2: run → jumping（isJump=false AND isJumping=true）
-            // 空中にいる間はisJumping=true、着地時はfalse
-            // これにより、isGroundの判定が甘い場合でも空中モーション対応
-            animator.SetBool("isJumping", !isGrounded);
+            // walk/idle状態でのジャンプ処理（新規追加）
+            // walk/idle → walk_jump（isWalkjump=true）
+            if (jumpPressed && (isWalkingFlag || isIdleFlag))
+            {
+                wasRunningBeforeJump = false;
+                animator.SetBool("isWalkjump", true);
+            }
+            else if (isInWalkJumpState)
+            {
+                animator.SetBool("isWalkjump", true);
+            }
+            else
+            {
+                animator.SetBool("isWalkjump", false);
+            }
+            
+            // 空中判定と状態遷移
+            // run状態から落ちた場合：jumping（isJumping=true, isWalkjumping=false）
+            // walk/idle状態から落ちた場合：walk_jumping（isWalkjumping=true, isJumping=false）
+            if (!isGrounded)
+            {
+                // 現在空中
+                if (!wasRunningBeforeJump && (isWalkingFlag || isIdleFlag || isInWalkJumpState))
+                {
+                    // walk/idle状態から落ちた場合
+                    wasInWalkBeforeAirbornestate = true;
+                    animator.SetBool("isWalkjumping", true);
+                    animator.SetBool("isJumping", false);
+                }
+                else
+                {
+                    // run状態から落ちた場合
+                    wasInWalkBeforeAirbornestate = false;
+                    animator.SetBool("isJumping", true);
+                    animator.SetBool("isWalkjumping", false);
+                }
+            }
+            else
+            {
+                // 着地時
+                animator.SetBool("isJumping", false);
+                animator.SetBool("isWalkjumping", false);
+                wasRunningBeforeJump = false;
+                wasInWalkBeforeAirbornestate = false;
+            }
+            
             jumpPressed = false;
             
             // 銃オブジェクトの表示制御
             if (gunObject != null)
             {
-                bool isRunningFlag = animator.GetBool("isRunning");
+                bool isRunningFlag_Gun = animator.GetBool("isRunning");
                 bool isJumpFlag = animator.GetBool("isJump");
                 bool isJumpingFlag = animator.GetBool("isJumping");
+                bool isWalkjumpingFlag = animator.GetBool("isWalkjumping");
                 
-                // run、jump、jumpingのいずれかが true なら銃を非表示
-                gunObject.SetActive(!isRunningFlag && !isJumpFlag && !isJumpingFlag);
+                // run、jump、jumpingのいずれかが true なら銃を非表示、walk_jumpingの場合は表示
+                gunObject.SetActive(!isRunningFlag_Gun && !isJumpFlag && (!isJumpingFlag || isWalkjumpingFlag));
             }
         }
     }
@@ -134,16 +224,23 @@ public class PlayerMovement : MonoBehaviour
         // jump状態中のみY速度で判定、それ以外はraycast結果を信用
         AnimatorStateInfo animState = animator != null ? animator.GetCurrentAnimatorStateInfo(0) : default;
         bool isInJumpState = animator != null && animState.IsName("jump");
+        bool isInWalkJumpState = animator != null && animState.IsName("walk_jump");
         
-        if (isInJumpState)
+        if (isInJumpState || isInWalkJumpState)
         {
             // ジャンプアニメーション中は、Y速度が下向きになるまで着地と判定しない
             isGrounded = rayAllLayers && rb.linearVelocity.y <= 0.01f;
         }
         else
         {
-            // 通常と jumping/run 状態は raycast 結果をそのまま使用
+            // 通常と jumping/walk_jumping/run 状態は raycast 結果をそのまま使用
             isGrounded = rayAllLayers;
+        }
+        
+        // 着地判定：前フレームで空中、今フレームで着地したら足音を再生
+        if (!wasGroundedLastFrame && isGrounded)
+        {
+            PlayRandomFootstep();
         }
         
         // 詳細なデバッグ情報
@@ -151,6 +248,9 @@ public class PlayerMovement : MonoBehaviour
             Debug.Log($"IsGrounded: {isGrounded}, Y速度: {rb.linearVelocity.y}, State: {animState.shortNameHash}");
         if (rayAllLayers && debugHitInfo)
             Debug.Log($"Hit: {hitAllLayers.collider.gameObject.name} (Distance: {hitAllLayers.distance})");
+        
+        // 前フレームの状態を保存
+        wasGroundedLastFrame = isGrounded;
         
         Debug.DrawRay(rayStartPos, Vector3.down * groundDist, Color.red);
     }
@@ -246,11 +346,57 @@ public class PlayerMovement : MonoBehaviour
                 Debug.Log($"isWalking: {isWalking}, isRunning: {shouldRun}, moveDirection: {moveDirection.magnitude}, isShiftPressed: {isRunning}");
         }
 
+        // 足音の再生処理
+        bool isRunningNow = isRunning && (transform.forward * verticalInput + transform.right * horizontalInput).magnitude > 0;
+        UpdateFootsteps(isRunningNow);
+
         // 地面にいるときのみドラッグを減らす
         if (isGrounded)
             rb.linearDamping = 0.1f;
         else
             rb.linearDamping = 0.05f;
+    }
+
+    private void UpdateFootsteps(bool isRunningNow)
+    {
+        if (isRunningNow && isGrounded)
+        {
+            footstepTimer += Time.deltaTime;
+            
+            if (footstepTimer >= footstepInterval)
+            {
+                PlayRandomFootstep();
+                footstepTimer = 0f;
+            }
+        }
+        else
+        {
+            // 走っていない場合、タイマーをリセット
+            footstepTimer = 0f;
+        }
+        
+        wasRunningLastFrame = isRunningNow;
+    }
+
+    private void PlayRandomFootstep()
+    {
+        if (footstepClips.Length == 0 || audioSource == null)
+            return;
+        
+        // 有効なクリップをフィルタリング
+        System.Collections.Generic.List<AudioClip> validClips = new System.Collections.Generic.List<AudioClip>();
+        foreach (AudioClip clip in footstepClips)
+        {
+            if (clip != null)
+                validClips.Add(clip);
+        }
+        
+        if (validClips.Count == 0)
+            return;
+        
+        // ランダムに選択して再生
+        AudioClip selectedClip = validClips[Random.Range(0, validClips.Count)];
+        audioSource.PlayOneShot(selectedClip, footstepVolume);
     }
 
     private void ApplyDrag()
@@ -279,15 +425,48 @@ public class PlayerMovement : MonoBehaviour
 
     private void Jump()
     {
-        // Y速度を直接設定してジャンプ
-        rb.linearVelocity = new Vector3(rb.linearVelocity.x, jumpForce, rb.linearVelocity.z);
+        // ジャンプ前の状態を記録
+        bool isRunningFlag = animator != null && animator.GetBool("isRunning");
+        bool isWalkingFlag = animator != null && animator.GetBool("isWalking");
+        bool isIdleFlag = animator != null && !isRunningFlag && !isWalkingFlag && isGrounded;
+        
+        if (isRunningFlag)
+        {
+            // run状態でのジャンプ
+            wasRunningBeforeJump = true;
+            currentJumpForce = jumpForce;
+        }
+        else if (isWalkingFlag || isIdleFlag)
+        {
+            // walk/idle状態でのジャンプ
+            wasRunningBeforeJump = false;
+            currentJumpForce = walkJumpForce;
+        }
 
-        // ジャンプアニメーション開始フラグをセット（Update内で1フレームだけ有効）
+        // ジャンプアニメーション開始フラグをセット（モーション移行）
         jumpPressed = true;
 
-        // ジャンプクールダウン
+        // ジャンプクールダウン開始
         readyToJump = false;
         Invoke(nameof(ResetJump), jumpCooldown);
+
+        // ジャンプディレイ設定（実際の飛び上がり）
+        if (jumpDelay > 0f)
+        {
+            jumpDelayTimer = jumpDelay;
+            jumpDelayActive = true;
+        }
+        else
+        {
+            // ディレイなしの場合は即座にジャンプ実行
+            ExecuteJump();
+        }
+    }
+
+    private void ExecuteJump()
+    {
+        // 保存されたジャンプ力を使用してジャンプ
+        rb.linearVelocity = new Vector3(rb.linearVelocity.x, currentJumpForce, rb.linearVelocity.z);
     }
 
     private void ResetJump()

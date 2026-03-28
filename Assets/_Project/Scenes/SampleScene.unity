@@ -12922,7 +12922,7 @@ MonoBehaviour:
   smoothness: 2
   sprintSmoothness: 2
   mouseSensitivity: 1
-  maxLookAngle: 90
+  maxLookAngle: 77
 --- !u!114 &96091102
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -12939,7 +12939,9 @@ MonoBehaviour:
   sprintSpeed: 8
   groundDrag: 5
   jumpForce: 5
+  walkJumpForce: 3.5
   jumpCooldown: 0.25
+  jumpDelay: 0.1
   groundDragAmount: 5
   airDragAmount: 2
   groundLayer:
@@ -12955,6 +12957,12 @@ MonoBehaviour:
   cameraPositionObject: {fileID: 1176889115}
   gunMuzzlePositionObject: {fileID: 96091104}
   gunObject: {fileID: 1028070607}
+  footstepClips:
+  - {fileID: 8300000, guid: 84af0edd99cd87f4c97c2286ac1c127b, type: 3}
+  - {fileID: 8300000, guid: 3f11de7dab1051f499dd8e5f2cbc5721, type: 3}
+  - {fileID: 8300000, guid: 926ed9f2c6e7b3e4eb5ebe5b641529ea, type: 3}
+  footstepVolume: 1
+  footstepInterval: 0.33
 --- !u!114 &96091103
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -25114,7 +25122,9 @@ MonoBehaviour:
   sprintSpeed: 8
   groundDrag: 5
   jumpForce: 5
+  walkJumpForce: 3
   jumpCooldown: 0.25
+  jumpDelay: 0
   groundDragAmount: 5
   airDragAmount: 2
   groundLayer:
@@ -25130,6 +25140,12 @@ MonoBehaviour:
   cameraPositionObject: {fileID: 0}
   gunMuzzlePositionObject: {fileID: 0}
   gunObject: {fileID: 0}
+  footstepClips:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  footstepVolume: 1
+  footstepInterval: 0.4
 --- !u!114 &1065207716
 MonoBehaviour:
   m_ObjectHideFlags: 0
