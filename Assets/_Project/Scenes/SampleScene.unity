@@ -12993,6 +12993,7 @@ MonoBehaviour:
   shootDelayOnWalk: 0.3
   debugHitLog: 1
   shootToIdleDelay: 0.3
+  walkToIdleTransitionTime: 0.2
 --- !u!4 &96091104 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -3705857627289068965, guid: 393cd02dd9467be43af051620b55b63b, type: 3}
@@ -25106,6 +25107,7 @@ MonoBehaviour:
   shootDelayOnWalk: 0.3
   debugHitLog: 1
   shootToIdleDelay: 0.3
+  walkToIdleTransitionTime: 0.3
 --- !u!114 &1065207715
 MonoBehaviour:
   m_ObjectHideFlags: 0
