@@ -174,9 +174,12 @@ public class PlayerMovement : MonoBehaviour
             if (!isGrounded)
             {
                 // 現在空中
-                if (!wasRunningBeforeJump && (isWalkingFlag || isIdleFlag || isInWalkJumpState))
+                bool isWalkjumpingFlag = animator.GetBool("isWalkjumping");
+                
+                // walk_jumping中は継続、もしくは新規開始
+                if (!wasRunningBeforeJump || isWalkjumpingFlag || (isInWalkJumpState && !isRunningFlag))
                 {
-                    // walk/idle状態から落ちた場合
+                    // walk/idle状態から落ちた場合、またはwalk_jumping継続中
                     wasInWalkBeforeAirbornestate = true;
                     animator.SetBool("isWalkjumping", true);
                     animator.SetBool("isJumping", false);
@@ -484,5 +487,11 @@ public class PlayerMovement : MonoBehaviour
     public Vector3 GetVelocity()
     {
         return rb.linearVelocity;
+    }
+
+    // 地面に接地しているかを取得
+    public bool IsGrounded()
+    {
+        return isGrounded;
     }
 }

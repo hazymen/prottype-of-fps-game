@@ -32,11 +32,16 @@ public class aaa : MonoBehaviour
 
     [Header("アニメーション遷移ラグ")]
     [SerializeField] private float shootToIdleDelay = 0.3f; // shoot→idle へのラグ時間
+    [SerializeField] private float walkToIdleTransitionTime = 0.3f; // walk→idle移行時の銃を構える時間
 
     private float lastShootTime = 0f;
     private Animator animator;
+    private PlayerMovement playerMovement;
     private bool isShooting = false;
     private Coroutine shootDelayCoroutine;
+    private bool wasWalkingLastFrame = false;
+    private float walkToIdleTransitionTimer = 0f;
+    private bool isWalkToIdleTransitioning = false;
 
     private void Start()
     {
@@ -51,6 +56,9 @@ public class aaa : MonoBehaviour
         // Animatorを取得
         animator = GetComponent<Animator>();
         
+        // PlayerMovementを取得
+        playerMovement = GetComponent<PlayerMovement>();
+        
         // マズル位置オブジェクトを非表示にする
         if (muzzlePosition != null)
             muzzlePosition.gameObject.SetActive(false);
@@ -58,6 +66,32 @@ public class aaa : MonoBehaviour
 
     private void Update()
     {
+        // walk→idle遷移の検出
+        if (animator != null)
+        {
+            bool isWalkingNow = animator.GetBool("isWalking");
+            bool isIdleNow = !animator.GetBool("isRunning") && !isWalkingNow;
+            
+            // walk状態から他の状態への遷移を検出（主にidle）
+            if (wasWalkingLastFrame && !isWalkingNow && isIdleNow)
+            {
+                isWalkToIdleTransitioning = true;
+                walkToIdleTransitionTimer = walkToIdleTransitionTime;
+            }
+            
+            wasWalkingLastFrame = isWalkingNow;
+        }
+        
+        // walk→idle遷移中のタイマー更新
+        if (isWalkToIdleTransitioning)
+        {
+            walkToIdleTransitionTimer -= Time.deltaTime;
+            if (walkToIdleTransitionTimer <= 0)
+            {
+                isWalkToIdleTransitioning = false;
+            }
+        }
+        
         HandleShooting();
         
         // 視点の高さに合わせてaimPitchを常にリアルタイム更新
@@ -90,21 +124,23 @@ public class aaa : MonoBehaviour
             if (Keyboard.current?.leftShiftKey.isPressed ?? false)
                 return;
 
+            // 空中にいる場合は射撃できない
+            if (playerMovement != null && !playerMovement.IsGrounded())
+                return;
+
             // walk状態かを確認
             bool isWalking = animator != null && animator.GetBool("isWalking");
             
+            // walk中は発砲できない
             if (isWalking)
-            {
-                // walk状態なら遅延射撃
-                if (shootDelayCoroutine != null)
-                    StopCoroutine(shootDelayCoroutine);
-                shootDelayCoroutine = StartCoroutine(ShootWithDelay(shootDelayOnWalk));
-            }
-            else
-            {
-                // それ以外は即座に射撃
-                Shoot();
-            }
+                return;
+            
+            // walk→idle遷移中（銃を構える時間中）は発砲できない
+            if (isWalkToIdleTransitioning)
+                return;
+            
+            // それ以外は即座に射撃
+            Shoot();
             
             lastShootTime = Time.time;
         }
