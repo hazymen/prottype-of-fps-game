@@ -136,69 +136,112 @@ public class PlayerMovement : MonoBehaviour
             bool isWalkingFlag = animator.GetBool("isWalking");
             bool isIdleFlag = !isRunningFlag && !isWalkingFlag && isGrounded; // その他はidle
             
-            // run状態でのジャンプ処理（従来と同じ）
-            // run → jump（isJump=true）
-            if (jumpPressed && isRunningFlag)
+            // ジャンプ状態の優先度管理
+            // isJumping=true かつ isGrounded=false なら、isJumping を絶対優先
+            bool isJumpingFlag = animator.GetBool("isJumping");
+            bool isWalkjumpingFlag = animator.GetBool("isWalkjumping");
+            
+            if (debugAnimationMovement)
+                Debug.Log($"ジャンプ処理: isGrounded={isGrounded}, isJumpingFlag={isJumpingFlag}, wasRunningBeforeJump={wasRunningBeforeJump}, isWalkjumpingFlag={isWalkjumpingFlag}");
+            
+            if (!isGrounded && isJumpingFlag)
             {
-                wasRunningBeforeJump = true;
-                animator.SetBool("isJump", true);
+                // jumping状態で空中 → jumping を絶対維持
+                animator.SetBool("isJumping", true);
+                animator.SetBool("isWalkjumping", false);
+                animator.SetBool("isWalking", false); // walk優先を防ぐ
+                if (debugAnimationMovement)
+                    Debug.Log("→分岐1: jumping継続中");
             }
-            else if (isInJumpState)
+            else if (!isGrounded && wasRunningBeforeJump)
             {
-                animator.SetBool("isJump", true);
+                // run状態からのジャンプ直後 → jumping を優先
+                animator.SetBool("isJumping", true);
+                animator.SetBool("isWalkjumping", false);
+                animator.SetBool("isWalking", false);
+                if (debugAnimationMovement)
+                    Debug.Log("→分岐2: run中のジャンプ直後、jumping優先");
             }
             else
             {
-                animator.SetBool("isJump", false);
-            }
-            
-            // walk/idle状態でのジャンプ処理（新規追加）
-            // walk/idle → walk_jump（isWalkjump=true）
-            if (jumpPressed && (isWalkingFlag || isIdleFlag))
-            {
-                wasRunningBeforeJump = false;
-                animator.SetBool("isWalkjump", true);
-            }
-            else if (isInWalkJumpState)
-            {
-                animator.SetBool("isWalkjump", true);
-            }
-            else
-            {
-                animator.SetBool("isWalkjump", false);
-            }
-            
-            // 空中判定と状態遷移
-            // run状態から落ちた場合：jumping（isJumping=true, isWalkjumping=false）
-            // walk/idle状態から落ちた場合：walk_jumping（isWalkjumping=true, isJumping=false）
-            if (!isGrounded)
-            {
-                // 現在空中
-                bool isWalkjumpingFlag = animator.GetBool("isWalkjumping");
+                if (debugAnimationMovement)
+                    Debug.Log("→分岐3: 通常判定へ");
                 
-                // walk_jumping中は継続、もしくは新規開始
-                if (!wasRunningBeforeJump || isWalkjumpingFlag || (isInWalkJumpState && !isRunningFlag))
+                // wasRunningBeforeJump が記録されていない場合（崖から落ちたなど）
+                // run/walk状態から直接空中に入った場合を動的に判定
+                
+                if (!isGrounded && isRunningFlag && !jumpPressed)
                 {
-                    // walk/idle状態から落ちた場合、またはwalk_jumping継続中
-                    wasInWalkBeforeAirbornestate = true;
+                    // run状態のまま空中に入った（崖から落ちた）→ jumping を優先
+                    wasRunningBeforeJump = true;
+                    animator.SetBool("isJumping", true);
+                    animator.SetBool("isWalkjumping", false);
+                    animator.SetBool("isWalking", false);
+                    if (debugAnimationMovement)
+                        Debug.Log("→分岐3-a: run状態のまま空中、jumping設定");
+                }
+                else if (!isGrounded && (isWalkingFlag) && !jumpPressed)
+                {
+                    // walk状態のまま空中に入った（崖から落ちた）→ walk_jumping を優先
+                    wasRunningBeforeJump = false;
                     animator.SetBool("isWalkjumping", true);
                     animator.SetBool("isJumping", false);
+                    if (debugAnimationMovement)
+                        Debug.Log("→分岐3-b: walk状態のまま空中、walk_jumping設定");
+                }
+            }
+            {
+                // 通常のジャンプ状態判定
+                
+                // run状態からのジャンプ場合、walk_jumpは立てない
+                if (wasRunningBeforeJump)
+                {
+                    // run状態でのジャンプ処理
+                    // run → jump（isJump=true）
+                    if (jumpPressed && isRunningFlag)
+                    {
+                        animator.SetBool("isJump", true);
+                    }
+                    else if (isInJumpState)
+                    {
+                        animator.SetBool("isJump", true);
+                    }
+                    else
+                    {
+                        animator.SetBool("isJump", false);
+                    }
+                    // walk_jumpは立てない
+                    animator.SetBool("isWalkjump", false);
                 }
                 else
                 {
-                    // run状態から落ちた場合
-                    wasInWalkBeforeAirbornestate = false;
-                    animator.SetBool("isJumping", true);
-                    animator.SetBool("isWalkjumping", false);
+                    // walk/idle状態でのジャンプ処理
+                    animator.SetBool("isJump", false);
+                    
+                    // walk/idle → walk_jump（isWalkjump=true）
+                    if (jumpPressed && (isWalkingFlag || isIdleFlag))
+                    {
+                        animator.SetBool("isWalkjump", true);
+                    }
+                    else if (isInWalkJumpState)
+                    {
+                        animator.SetBool("isWalkjump", true);
+                    }
+                    else
+                    {
+                        animator.SetBool("isWalkjump", false);
+                    }
                 }
             }
-            else
+            
+            // 着地時（isGrounded=true）は必ずジャンプ状態をリセット
+            if (isGrounded)
             {
-                // 着地時
                 animator.SetBool("isJumping", false);
                 animator.SetBool("isWalkjumping", false);
                 wasRunningBeforeJump = false;
                 wasInWalkBeforeAirbornestate = false;
+                // isWalkingはここでリセットせず、MovePlayer()で正しくセットされるのを待つ
             }
             
             jumpPressed = false;
@@ -208,11 +251,11 @@ public class PlayerMovement : MonoBehaviour
             {
                 bool isRunningFlag_Gun = animator.GetBool("isRunning");
                 bool isJumpFlag = animator.GetBool("isJump");
-                bool isJumpingFlag = animator.GetBool("isJumping");
-                bool isWalkjumpingFlag = animator.GetBool("isWalkjumping");
+                bool isJumpingStatus = animator.GetBool("isJumping");
+                bool isWalkjumpingStatus = animator.GetBool("isWalkjumping");
                 
                 // run、jump、jumpingのいずれかが true なら銃を非表示、walk_jumpingの場合は表示
-                gunObject.SetActive(!isRunningFlag_Gun && !isJumpFlag && (!isJumpingFlag || isWalkjumpingFlag));
+                gunObject.SetActive(!isRunningFlag_Gun && !isJumpFlag && (!isJumpingStatus || isWalkjumpingStatus));
             }
         }
     }
@@ -224,19 +267,21 @@ public class PlayerMovement : MonoBehaviour
         RaycastHit hitAllLayers;
         bool rayAllLayers = Physics.Raycast(rayStartPos, Vector3.down, out hitAllLayers, groundDist);
         
-        // jump状態中のみY速度で判定、それ以外はraycast結果を信用
+        // jump/jumping状態中のみY速度で判定、それ以外はraycast結果を信用
         AnimatorStateInfo animState = animator != null ? animator.GetCurrentAnimatorStateInfo(0) : default;
         bool isInJumpState = animator != null && animState.IsName("jump");
         bool isInWalkJumpState = animator != null && animState.IsName("walk_jump");
+        bool isJumpingState = animator != null && animState.IsName("jumping");
+        bool isWalkJumpingState = animator != null && animState.IsName("walk_jumping");
         
-        if (isInJumpState || isInWalkJumpState)
+        if (isInJumpState || isInWalkJumpState || isJumpingState || isWalkJumpingState)
         {
-            // ジャンプアニメーション中は、Y速度が下向きになるまで着地と判定しない
+            // ジャンプ/jumping/walk_jumping状態中は、Y速度が下向きになるまで着地と判定しない
             isGrounded = rayAllLayers && rb.linearVelocity.y <= 0.01f;
         }
         else
         {
-            // 通常と jumping/walk_jumping/run 状態は raycast 結果をそのまま使用
+            // 通常状態は raycast 結果をそのまま使用
             isGrounded = rayAllLayers;
         }
         
@@ -433,17 +478,24 @@ public class PlayerMovement : MonoBehaviour
         bool isWalkingFlag = animator != null && animator.GetBool("isWalking");
         bool isIdleFlag = animator != null && !isRunningFlag && !isWalkingFlag && isGrounded;
         
+        if (debugAnimationMovement)
+            Debug.Log($"Jump()呼び出し: isRunningFlag={isRunningFlag}, isWalkingFlag={isWalkingFlag}, isIdleFlag={isIdleFlag}, isGrounded={isGrounded}");
+        
         if (isRunningFlag)
         {
             // run状態でのジャンプ
             wasRunningBeforeJump = true;
             currentJumpForce = jumpForce;
+            if (debugAnimationMovement)
+                Debug.Log("→ run状態でのジャンプ、wasRunningBeforeJump=true");
         }
         else if (isWalkingFlag || isIdleFlag)
         {
             // walk/idle状態でのジャンプ
             wasRunningBeforeJump = false;
             currentJumpForce = walkJumpForce;
+            if (debugAnimationMovement)
+                Debug.Log("→ walk/idle状態でのジャンプ、wasRunningBeforeJump=false");
         }
 
         // ジャンプアニメーション開始フラグをセット（モーション移行）
