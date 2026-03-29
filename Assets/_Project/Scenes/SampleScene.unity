@@ -12931,7 +12931,7 @@ MonoBehaviour:
   followPlayer: 1
   smoothness: 2
   sprintSmoothness: 2
-  mouseSensitivity: 1
+  mouseSensitivity: 2
   maxLookAngle: 64
 --- !u!114 &96091102
 MonoBehaviour:
