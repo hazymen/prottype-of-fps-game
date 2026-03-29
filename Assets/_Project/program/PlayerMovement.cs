@@ -12,6 +12,11 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float jumpCooldown = 0.25f;
     [SerializeField] private float jumpDelay = 0f; // ジャンプディレイ秒数
     
+    [Header("加速設定")]
+    [SerializeField] private float moveAcceleration = 15f;   // 通常移動の加速度
+    [SerializeField] private float sprintAcceleration = 20f;  // 走行の加速度
+    [SerializeField] private float deceleration = 25f;        // 減速度
+    
     [Header("地面判定")]
     [SerializeField] private float groundDragAmount = 1f;
     [SerializeField] private float airDragAmount = 0.5f;
@@ -38,6 +43,10 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float footstepVolume = 1f;
     [SerializeField] private float footstepInterval = 0.2f; // 足音の間隔（runは2歩なので0.4fの半分）
     
+    [Header("落下対策設定")]
+    [SerializeField] private float fallDeathY = -50f; // この高さより下に落ちたら初期位置に戻す
+    [SerializeField] private bool debugFallDetection = true;
+    
     private Camera mainCamera;
     private AudioSource audioSource;
     private float footstepTimer = 0f;
@@ -61,6 +70,13 @@ public class PlayerMovement : MonoBehaviour
     private float jumpDelayTimer = 0f;
     private bool jumpDelayActive = false;
     private float currentJumpForce = 0f; // 現在のジャンプで使用するジャンプ力
+    
+    // 落下対策用
+    private Vector3 spawnPosition; // 初期スポーン位置
+    private Quaternion spawnRotation; // 初期スポーン回転
+    
+    // 加速度用
+    private float currentSpeed = 0f; // 現在の移動速度
 
     private void Start()
     {
@@ -79,6 +95,10 @@ public class PlayerMovement : MonoBehaviour
         
         // カメラを取得
         mainCamera = Camera.main;
+        
+        // 初期スポーン位置を保存
+        spawnPosition = transform.position;
+        spawnRotation = transform.rotation;
         
         // UI/オブジェクトを非表示化
         if (cameraPositionObject != null)
@@ -101,6 +121,9 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
+        // 落下判定（裏世界落下対策）
+        CheckFallDeath();
+        
         // 地面判定（改善版）
         CheckGrounded();
 
@@ -180,14 +203,14 @@ public class PlayerMovement : MonoBehaviour
                     if (debugAnimationMovement)
                         Debug.Log("→分岐3-a: run状態のまま空中、jumping設定");
                 }
-                else if (!isGrounded && (isWalkingFlag) && !jumpPressed)
+                else if (!isGrounded && !isRunningFlag && !jumpPressed)
                 {
-                    // walk状態のまま空中に入った（崖から落ちた）→ walk_jumping を優先
+                    // walk/idle状態のまま空中に入った（崖から落ちた）→ walk_jumping を優先
                     wasRunningBeforeJump = false;
                     animator.SetBool("isWalkjumping", true);
                     animator.SetBool("isJumping", false);
                     if (debugAnimationMovement)
-                        Debug.Log("→分岐3-b: walk状態のまま空中、walk_jumping設定");
+                        Debug.Log("→分岐3-b: walk/idle状態のまま空中、walk_jumping設定");
                 }
             }
             {
@@ -363,10 +386,18 @@ public class PlayerMovement : MonoBehaviour
         Vector3 moveDirection = transform.forward * verticalInput + transform.right * horizontalInput;
 
         // 走る判定
-        float currentSpeed = (Keyboard.current?.leftShiftKey.isPressed ?? false) ? sprintSpeed : moveSpeed;
         bool isRunning = (Keyboard.current?.leftShiftKey.isPressed ?? false);
+        float targetSpeed = isRunning ? sprintSpeed : moveSpeed;
+        
+        // 入力がない場合は目標速度を0
+        if (moveDirection.magnitude == 0)
+            targetSpeed = 0f;
 
-        // 移動を適用（力の方式から直接速度操作に変更）
+        // 加速度を適用して現在速度を更新
+        float acceleration = (targetSpeed == 0f) ? deceleration : (isRunning ? sprintAcceleration : moveAcceleration);
+        currentSpeed = Mathf.MoveTowards(currentSpeed, targetSpeed, acceleration * Time.deltaTime);
+
+        // 移動を適用
         if (moveDirection.magnitude > 0)
         {
             Vector3 targetVelocity = moveDirection.normalized * currentSpeed;
@@ -376,6 +407,7 @@ public class PlayerMovement : MonoBehaviour
         {
             // 入力がないときは速度を0にする
             rb.linearVelocity = new Vector3(0, rb.linearVelocity.y, 0);
+            currentSpeed = 0f;
         }
 
         // アニメーション制御
@@ -391,7 +423,7 @@ public class PlayerMovement : MonoBehaviour
             
             // デバッグログ
             if (debugAnimationMovement)
-                Debug.Log($"isWalking: {isWalking}, isRunning: {shouldRun}, moveDirection: {moveDirection.magnitude}, isShiftPressed: {isRunning}");
+                Debug.Log($"isWalking: {isWalking}, isRunning: {shouldRun}, currentSpeed: {currentSpeed:F2}, moveDirection: {moveDirection.magnitude}");
         }
 
         // 足音の再生処理
@@ -545,5 +577,23 @@ public class PlayerMovement : MonoBehaviour
     public bool IsGrounded()
     {
         return isGrounded;
+    }
+
+    private void CheckFallDeath()
+    {
+        // 指定Y座標以下に落ちたら初期スポーン位置に戻す
+        if (transform.position.y < fallDeathY)
+        {
+            if (debugFallDetection)
+                Debug.Log($"落下検出: Y={transform.position.y}, 初期スポーン位置に戻します");
+            
+            // 位置と回転を復元
+            transform.position = spawnPosition;
+            transform.rotation = spawnRotation;
+            
+            // 速度をリセット
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
     }
 }

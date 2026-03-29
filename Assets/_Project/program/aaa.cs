@@ -105,7 +105,7 @@ public class aaa : MonoBehaviour
                 cameraPitch -= 360f;
             
             // ノーマライズ：-90～90を0～1に変換して1.3倍率を適用
-            float normalizedPitch = Mathf.Clamp01((cameraPitch + 90) / 180f * 1.0f);
+            float normalizedPitch = Mathf.Clamp01((cameraPitch + 85) / 180f * 1f);
             
             animator.SetFloat("aimPitch", normalizedPitch);
         }
