@@ -3,7 +3,17 @@ guid: 6e3ef1ef440793f4f89918d6cd077716
 ModelImporter:
   serializedVersion: 24200
   internalIDToNameTable: []
-  externalObjects: {}
+  externalObjects:
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: kusawww
+    second: {fileID: 2100000, guid: db7afb6abdb8c7745860b0b8ae00bcbe, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: tutiwww
+    second: {fileID: 2100000, guid: 197adc993a1441f4ba16d8537bc79d56, type: 2}
   materials:
     materialImportMode: 2
     materialName: 0

@@ -9,6 +9,8 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float groundDrag = 5f;
     [SerializeField] private float jumpForce = 5f;
     [SerializeField] private float walkJumpForce = 3f; // walk_jump用のジャンプ力（jumpForceより小さい値を推奨）
+    [SerializeField] private float runJumpBoostForce = 7f; // 走りジャンプ→着地後の再ジャンプ(ブースト)時のジャンプ力
+    [SerializeField] private float runJumpBoostWindow = 1.5f; // 走りジャンプ上昇ジャンプが有効な時間（秒）
     [SerializeField] private float jumpCooldown = 0.25f;
     [SerializeField] private float jumpDelay = 0f; // ジャンプディレイ秒数
     
@@ -27,6 +29,8 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private bool debugIsGrounded = true;
     [SerializeField] private bool debugHitInfo = true;
     [SerializeField] private bool debugAnimationMovement = true;
+    [SerializeField] private bool debugRunJumpBoost = true; // 走りジャンプブースト機能のデバッグ出力
+    [SerializeField] private bool debugRunJumpBoostSuccess = true; // 走りジャンプブースト成功可否のデバッグ出力
 
     [Header("頭部IK設定")]
     [SerializeField] private Transform headBone;
@@ -65,6 +69,10 @@ public class PlayerMovement : MonoBehaviour
     // walk/idle状態でのジャンプ追跡用
     private bool wasRunningBeforeJump = false; // ジャンプ前がrun状態だったか
     private bool wasInWalkBeforeAirbornestate = false; // 空中に落ちる直前がwalk状態だったか
+    
+    // 走りジャンプブースト用
+    private float lastRunJumpLandingTime = -100f; // 最後に走りジャンプから着地した時刻（-100 = まだ発生していない）
+    private bool canUseRunJumpBoost = false; // 走りジャンプブーストが使用可能か
     
     // ジャンプディレイ用
     private float jumpDelayTimer = 0f;
@@ -262,6 +270,30 @@ public class PlayerMovement : MonoBehaviour
             {
                 animator.SetBool("isJumping", false);
                 animator.SetBool("isWalkjumping", false);
+                
+                // 走りジャンプから着地した場合、かつ現在も走り状態が継続していたら、ブーストウィンドウを開く
+                if (wasRunningBeforeJump)
+                {
+                    bool isCurrentlyRunning = animator != null && animator.GetBool("isRunning");
+                    if (isCurrentlyRunning)
+                    {
+                        canUseRunJumpBoost = true;
+                        lastRunJumpLandingTime = Time.time;
+                        if (debugRunJumpBoost)
+                            Debug.Log($"[着地] 走り状態継続中。ブーストウィンドウを開く (timeSince={Time.time})");
+                    }
+                    else
+                    {
+                        if (debugRunJumpBoost)
+                            Debug.Log($"[着地] 走りジャンプでしたが、着地時に走り状態が解除されていました");
+                    }
+                }
+                else
+                {
+                    if (debugRunJumpBoost)
+                        Debug.Log($"[着地] 通常着地。wasRunningBeforeJump=false");
+                }
+                
                 wasRunningBeforeJump = false;
                 wasInWalkBeforeAirbornestate = false;
                 // isWalkingはここでリセットせず、MovePlayer()で正しくセットされるのを待つ
@@ -279,6 +311,35 @@ public class PlayerMovement : MonoBehaviour
                 
                 // run、jump、jumpingのいずれかが true なら銃を非表示、walk_jumpingの場合は表示
                 gunObject.SetActive(!isRunningFlag_Gun && !isJumpFlag && (!isJumpingStatus || isWalkjumpingStatus));
+            }
+        }
+
+        // 走りジャンプブースト時間ウィンドウの管理（着地判定の後に実行）
+        if (canUseRunJumpBoost)
+        {
+            // ウィンドウ中に走り状態が解除されたら即座に無効化
+            bool isCurrentlyRunning = animator != null && animator.GetBool("isRunning");
+            if (!isCurrentlyRunning)
+            {
+                canUseRunJumpBoost = false;
+                if (debugRunJumpBoost)
+                    Debug.Log("[ブースト] ウィンドウ中に走り状態が解除されました。ブースト無効化");
+            }
+            else
+            {
+                float timeSinceLanding = Time.time - lastRunJumpLandingTime;
+                if (timeSinceLanding > runJumpBoostWindow)
+                {
+                    // ウィンドウが終了
+                    canUseRunJumpBoost = false;
+                    if (debugRunJumpBoost)
+                        Debug.Log($"[ブースト] ウィンドウ終了。timeSince={timeSinceLanding:F2}, window={runJumpBoostWindow}");
+                }
+                else
+                {
+                    if (debugRunJumpBoost)
+                        Debug.Log($"[ブースト] 有効中... timeSince={timeSinceLanding:F2}/{runJumpBoostWindow}");
+                }
             }
         }
     }
@@ -421,6 +482,14 @@ public class PlayerMovement : MonoBehaviour
             animator.SetBool("isWalking", isWalking);
             animator.SetBool("isRunning", shouldRun);
             
+            // 走り状態が解除されたら、ブーストウィンドウも無効化
+            if (canUseRunJumpBoost && !shouldRun)
+            {
+                canUseRunJumpBoost = false;
+                if (debugRunJumpBoost)
+                    Debug.Log("[MovePlayer] 走り状態が解除されました。ブーストウィンドウを無効化");
+            }
+            
             // デバッグログ
             if (debugAnimationMovement)
                 Debug.Log($"isWalking: {isWalking}, isRunning: {shouldRun}, currentSpeed: {currentSpeed:F2}, moveDirection: {moveDirection.magnitude}");
@@ -510,24 +579,45 @@ public class PlayerMovement : MonoBehaviour
         bool isWalkingFlag = animator != null && animator.GetBool("isWalking");
         bool isIdleFlag = animator != null && !isRunningFlag && !isWalkingFlag && isGrounded;
         
-        if (debugAnimationMovement)
-            Debug.Log($"Jump()呼び出し: isRunningFlag={isRunningFlag}, isWalkingFlag={isWalkingFlag}, isIdleFlag={isIdleFlag}, isGrounded={isGrounded}");
+        // デバッグ出力（ブースト判定用）
+        float timeSinceLanding = Time.time - lastRunJumpLandingTime;
+        if (debugRunJumpBoost)
+            Debug.Log($"[Jump] isRunningFlag={isRunningFlag}, isWalkingFlag={isWalkingFlag}, isIdleFlag={isIdleFlag}, canUseRunJumpBoost={canUseRunJumpBoost}, timeSinceLanding={timeSinceLanding:F2}");
         
         if (isRunningFlag)
         {
             // run状態でのジャンプ
             wasRunningBeforeJump = true;
-            currentJumpForce = jumpForce;
-            if (debugAnimationMovement)
-                Debug.Log("→ run状態でのジャンプ、wasRunningBeforeJump=true");
+            
+            // ブーストが有効か確認（走り限定）
+            if (canUseRunJumpBoost)
+            {
+                currentJumpForce = runJumpBoostForce;
+                canUseRunJumpBoost = false; // ブーストを使用したので無効化
+                lastRunJumpLandingTime = Time.time; // クールダウン開始（指定秒数ブース不可）
+                if (debugRunJumpBoostSuccess)
+                {
+                    Debug.Log($"[Jump] ★★★ ブースト成功！★★★ 力={runJumpBoostForce} (クールダウン開始)");
+                    Debug.Log($"[Jump-Details] 通常ジャンプ力={jumpForce} → ブースト力={runJumpBoostForce} (増加量: +{runJumpBoostForce - jumpForce})");
+                }
+            }
+            else
+            {
+                currentJumpForce = jumpForce;
+                if (debugRunJumpBoostSuccess)
+                {
+                    Debug.Log($"[Jump] ブースト不可（通常ジャンプ） 力={jumpForce}");
+                    Debug.Log($"[Jump-Reason] canUseRunJumpBoost={canUseRunJumpBoost}, 経過時間={timeSinceLanding:F2}秒");
+                }
+            }
         }
-        else if (isWalkingFlag || isIdleFlag)
+        else
         {
-            // walk/idle状態でのジャンプ
+            // 非run状態でのジャンプ（ブースト無効）
             wasRunningBeforeJump = false;
             currentJumpForce = walkJumpForce;
-            if (debugAnimationMovement)
-                Debug.Log("→ walk/idle状態でのジャンプ、wasRunningBeforeJump=false");
+            if (debugRunJumpBoostSuccess)
+                Debug.Log($"[Jump] ブースト不可（走り状態ではない） 力={walkJumpForce} (isWalking={isWalkingFlag}, isIdle={isIdleFlag})");
         }
 
         // ジャンプアニメーション開始フラグをセット（モーション移行）
